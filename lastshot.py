@@ -21,9 +21,6 @@ lebron['Player']  = 'Lebron_James'
 # Combine All Data
 df = pd.concat([stephen, james, lebron], axis=0)
 df['date'] = pd.to_datetime(df['date']).dt.date
-
-
-
 # Shot distance
 bins = [-1, 3, 9, 16, 23, 26, 30, 99]
 labels = ['0–3 ft', '4–9 ft', '10–16 ft', '17–23 ft', '24–26 ft', '27–30 ft', '31+ ft']
@@ -35,19 +32,16 @@ att_qtr = (
       .agg(result=('result', 'sum'))
       .reset_index()
 )
-
 # Shot type per distance
 shot_dist = (
     df.groupby(['Player', 'distance_bin', 'shot_type'])
       .agg(result=('result', 'sum'))
       .reset_index()
 )
-
 # Quarter groups
 q_all = ['1st Qtr','2nd Qtr','3rd Qtr','4th Qtr','1st OT','2nd OT']
 q_reg = ['1st Qtr','2nd Qtr','3rd Qtr','4th Qtr']
 q_ot  = ['1st OT','2nd OT']
-
 
 def build(data, path, val_key, title_suffix):
     fig_tmp = px.sunburst(
@@ -70,7 +64,6 @@ att_all = build(att_qtr[att_qtr['qtr'].isin(q_all)], ['Player','qtr','shot_type'
 att_reg = build(att_qtr[att_qtr['qtr'].isin(q_reg)], ['Player','qtr','shot_type'], 'result', 'Attempts — Regulation (Quarter)')
 att_ot  = build(att_qtr[att_qtr['qtr'].isin(q_ot )], ['Player','qtr','shot_type'], 'result', 'Attempts — OT (Quarter)')
 
-
 def distance(qtrs):
     sub = df[df['qtr'].isin(qtrs)]
     d = (sub.groupby(['Player','distance_bin','shot_type'])
@@ -82,9 +75,7 @@ def distance(qtrs):
 Dist_all = build(distance(q_all), ['Player','distance_bin','shot_type'], 'result', 'Distance — All')
 Dist_reg = build(distance(q_reg), ['Player','distance_bin','shot_type'], 'result', 'Distance — Regulation')
 Dist_ot  = build(distance(q_ot ), ['Player','distance_bin','shot_type'], 'result', 'Distance — OT')
-
 fig_addon = go.Figure(data=[att_all, att_reg, att_ot, Dist_all, Dist_reg, Dist_ot])
-
 
 for i, t in enumerate(fig_addon.data):
     t.visible = (i == 0)
@@ -138,7 +129,6 @@ fig_addon.update_layout(
     ),
     showlegend=False
 )
-
 
 for tr in fig_addon.data:
     tr.update(domain=dict(y=[0.12, 1.0]))
