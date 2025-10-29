@@ -182,10 +182,7 @@ def draw_court(fig, court_color='black'):
     fig.update_layout(shapes=shapes)
     return fig
 
-
-# -----------------------------
 # Initial scatter with court
-# -----------------------------
 scatter_fig = px.scatter(
     df, x='left', y='top',
     color='MadeLabel',
