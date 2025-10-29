@@ -1,17 +1,16 @@
-import matplotlib.pyplot as plt
-import seaborn as sns
 import pandas as pd
 import numpy as np
 import plotly.express as px
 import plotly.graph_objects as go
-from plotly.subplots import make_subplots
+import dash
+from dash import dcc, html, Input, Output
 
 import warnings
 warnings.filterwarnings('ignore')
 
 # Load CSV Files
 stephen = pd.read_csv('3_stephen_curry_shot_chart_2023.csv', low_memory=False)
-james   = pd.read_csv('2_james_harden_shot_chart_2023.csv',   low_memory=False)
+james   = pd.read_csv('2_james_harden_shot_chart_2023.csv', low_memory=False)
 lebron  = pd.read_csv('1_lebron_james_shot_chart_1_2023.csv', low_memory=False)
 
 # Add Player Names (keep your labels)
@@ -20,7 +19,7 @@ james['Player']   = 'James_Harden'
 lebron['Player']  = 'Lebron_James'
 
 # Combine All Data
-df = pd.concat([stephen, james, lebron], axis=0, ignore_index=True)
+df = pd.concat([stephen, james, lebron], ignore_index=True)
 if 'date' in df.columns:
     try:
         df['date'] = pd.to_datetime(df['date']).dt.date
@@ -39,28 +38,27 @@ df['shot_type'] = df['shot_type'].astype(str)
 
 # Keep only rows that have a distance bin for distance-based views
 # and avoid categorical gotchas by using plain strings
-df = df.copy()
-df['distance_bin'] = df['distance_bin'].astype(str)  # cast away categorical
-df.loc[df['distance_bin'].isin(['nan', 'NaN']), 'distance_bin'] = np.nan  # clean accidental "nan" strings
+df['distance_bin'] = df['distance_bin'].astype(str)
+df.loc[df['distance_bin'].isin(['nan','NaN']), 'distance_bin'] = np.nan
 
-# -------------------------------
 # Made flag & simple FG% groups
-# -------------------------------
 # Map common encodings to 1/0 in a single line (simple approach)
 df['Made'] = df['result'].astype(str).str.lower().isin(
     ['1','true','made','make','shot made','made shot','hit']
 ).astype(int)
 
+# User friendly label for makes & misses to use for coloring dots in shot chart
+df['MadeLabel'] = df['Made'].map({1: 'Make', 0: 'Miss'})
+
 def fg_agg(group_cols, data):
     # drop rows missing any grouping key
     data2 = data.dropna(subset=[c for c in group_cols if c in data.columns]).copy()
     g = (
-        data2.groupby(group_cols, as_index=False, observed=True)   # observed=True fixes categorical combos
-            .agg(Attempts=('Made','count'), Made=('Made','sum'))
+        data2.groupby(group_cols, as_index=False, observed=True) # observed=True fixes categorical combos
+            .agg(Attempts=('Made','count'),Made=('Made','sum'))
     )
     g['FG%'] = (g['Made'] / g['Attempts'] * 100).round(1)
     return g
-
 
 # Quarter filters (unchanged)
 q_all = ['1st Qtr','2nd Qtr','3rd Qtr','4th Qtr','1st OT','2nd OT']
@@ -72,7 +70,7 @@ fg_qtr_all = fg_agg(['Player','qtr','shot_type'], df[df['qtr'].isin(q_all)])
 fg_qtr_reg = fg_agg(['Player','qtr','shot_type'], df[df['qtr'].isin(q_reg)])
 fg_qtr_ot  = fg_agg(['Player','qtr','shot_type'], df[df['qtr'].isin(q_ot)])
 
-# Distance views — filter first, then group
+# Distance views - filter first, then group
 df_dist_all = df[df['distance_bin'].notna()]
 df_dist_reg = df[(df['distance_bin'].notna()) & (df['qtr'].isin(q_reg))]
 df_dist_ot  = df[(df['distance_bin'].notna()) & (df['qtr'].isin(q_ot))]
@@ -81,12 +79,10 @@ fg_dist_all = fg_agg(['Player','distance_bin','shot_type'], df_dist_all)
 fg_dist_reg = fg_agg(['Player','distance_bin','shot_type'], df_dist_reg)
 fg_dist_ot  = fg_agg(['Player','distance_bin','shot_type'], df_dist_ot)
 
-
-# -------------------------------
 # Sunburst builder (simple)
 # - values = Attempts (size)
-# - color  = FG%       (hot/cold)
-# -------------------------------
+# - color  = FG%       (color)
+
 def build(data, path, title_suffix):
     if data.empty:
         # keep layout stable if a view is empty
@@ -102,41 +98,43 @@ def build(data, path, title_suffix):
         branchvalues='total',
         maxdepth=-1
     )
-    
+
     tr = fig_tmp.data[0]
     tr.name = title_suffix
 
-    tr.update(
-        marker=dict(
-            colorscale='RdYlGn',
-            cmin=0, cmax=100,
-            showscale=False  # set True on one trace if you want a colorbar
+    tr.marker = dict(
+        colors=tr.marker.colors,
+        colorscale='RdYlGn',
+        cmin=0,
+        cmax=100,
+        colorbar=dict(
+            title=dict(text='FG%', side='right'),
+            thickness=15,
+            len=0.7
         )
     )
-
+    
     tr.hovertemplate = (
-        "<b>%{label}</b><br>" +
-        "Attempts: %{value}<br>" +
-        "FG%: %{color:.1f}%<br>" 
+        "<b>%{label}</b><br>"+
+        "Attempts: %{value}<br>"+
+        "FG%: %{color:.1f}%<br>"
     )
     tr.textinfo = "label"
     return tr
-    
+
 # Build traces (use your same dropdown structure)
 att_all = build(fg_qtr_all, ['Player','qtr','shot_type'], 'FG% — All (Quarter)')
-att_reg = build(fg_qtr_reg, ['Player','qtr','shot_type'], 'FG% — Regulation (Quarter)')
-att_ot  = build(fg_qtr_ot,  ['Player','qtr','shot_type'], 'FG% — OT (Quarter)')
+att_reg = build(fg_qtr_reg, ['Player','qtr','shot_type'], 'FG% — Regulation')
+att_ot  = build(fg_qtr_ot, ['Player','qtr','shot_type'], 'FG% — OT')
 
 Dist_all = build(fg_dist_all, ['Player','distance_bin','shot_type'], 'FG% — Distance (All)')
 Dist_reg = build(fg_dist_reg, ['Player','distance_bin','shot_type'], 'FG% — Distance (Reg)')
-Dist_ot  = build(fg_dist_ot,  ['Player','distance_bin','shot_type'], 'FG% — Distance (OT)')
+Dist_ot  = build(fg_dist_ot, ['Player','distance_bin','shot_type'], 'FG% — Distance (OT)')
 
 fig_addon = go.Figure(data=[att_all, att_reg, att_ot, Dist_all, Dist_reg, Dist_ot])
-fig_addon.update_layout(coloraxis_colorscale='RdYlGn')  # 0% red → 100% green
 
-
-for i, t in enumerate(fig_addon.data):
-    t.visible = (i == 0)
+for i, tr in enumerate(fig_addon.data):
+    tr.visible = (i==0)
 
 def visible(idx):
     v = [False]*6
@@ -151,45 +149,121 @@ fig_addon.update_layout(
         y=1.05, yanchor="top",
         showactive=True,
         buttons=[
-            dict(label="FG% — All (Quarter)",        method="update",
-                 args=[{"visible": visible(0)},
-                       {"title": {"text": "FG% (color) & Attempts (size) — All (Quarter)", "x": 0.5, "xanchor": "center"}}]),
-            dict(label="FG% — Regulation (Quarter)", method="update",
-                 args=[{"visible": visible(1)},
-                       {"title": {"text": "FG% (color) & Attempts (size) — Regulation (Quarter)", "x": 0.5, "xanchor": "center"}}]),
-            dict(label="FG% — OT (Quarter)",         method="update",
-                 args=[{"visible": visible(2)},
-                       {"title": {"text": "FG% (color) & Attempts (size) — OT (Quarter)", "x": 0.5, "xanchor": "center"}}]),
-            dict(label="FG% — Distance (All)",       method="update",
-                 args=[{"visible": visible(3)},
-                       {"title": {"text": "FG% (color) & Attempts (size) — Distance (All)", "x": 0.5, "xanchor": "center"}}]),
-            dict(label="FG% — Distance (Regulation)", method="update",
-                 args=[{"visible": visible(4)},
-                       {"title": {"text": "FG% (color) & Attempts (size) — Distance (Regulation)", "x": 0.5, "xanchor": "center"}}]),
-            dict(label="FG% — Distance (OT)",         method="update",
-                 args=[{"visible": visible(5)},
-                       {"title": {"text": "FG% (color) & Attempts (size) — Distance (OT)", "x": 0.5, "xanchor": "center"}}]),
-        ],
-    )],
-    height=824,
-    margin=dict(b=140, r=20, l=20, t=90),
-    plot_bgcolor='#fafafa',
-    paper_bgcolor='#fafafa',
-    coloraxis_colorbar=dict(title="FG%"),
-    title={"text": "FG% (color) & Attempts (size) — All (Quarter)", "x": 0.5, "xanchor": "center", "y": 0.98, "yanchor": "top"},
-    title_font=dict(size=24, color='#8a8d93', family="Lato, sans-serif"),
-    font=dict(color='#8a8d93'),
-    hoverlabel=dict(
-        bgcolor="#f2f2f2",
-        font_size=13,
-        font_family="Lato, sans-serif",
-        align="left",
-        namelength=-1,
-    ),
-    showlegend=False
+            dict(label="FG% — All (Quarter)", method="update", args=[{"visible": visible(0)}, {"title":{"text":"FG% (color) & Attempts (size) — All (Quarter)","x":0.5}}]),
+            dict(label="FG% — Regulation", method="update", args=[{"visible": visible(1)}, {"title":{"text":"FG% — Regulation","x":0.5}}]),
+            dict(label="FG% — OT", method="update", args=[{"visible": visible(2)}, {"title":{"text":"FG% — OT","x":0.5}}]),
+            dict(label="FG% — Distance (All)", method="update", args=[{"visible": visible(3)}, {"title":{"text":"FG% — Distance (All)","x":0.5}}]),
+            dict(label="FG% — Distance (Reg)", method="update", args=[{"visible": visible(4)}, {"title":{"text":"FG% — Distance (Reg)","x":0.5}}]),
+            dict(label="FG% — Distance (OT)", method="update", args=[{"visible": visible(5)}, {"title":{"text":"FG% — Distance (OT)","x":0.5}}]),
+        ]
+    )]
 )
 
-for tr in fig_addon.data:
-    tr.update(domain=dict(y=[0.12, 1.0]))
+# Fixed axis ranges for shot chart
+x_min, x_max = df['top'].min(), df['top'].max()
+y_min, y_max = df['left'].min(), df['left'].max()
 
-fig_addon.show()
+# Function to draw an NBA half-court over shot chart
+def draw_court(fig, court_color='black'):
+    shapes = []
+    # Hoop
+    shapes.append(dict(type='circle', xref='x', yref='y', x0=245, y0=30, x1=255, y1=40, line=dict(color=court_color)))
+    # Backboard
+    shapes.append(dict(type='line', xref='x', yref='y', x0=228, y0=29, x1=270, y1=29, line=dict(color=court_color)))
+    # Paint area
+    shapes.append(dict(type='rect', xref='x', yref='y', x0=194, y0=0, x1=306, y1=190, line=dict(color=court_color), fillcolor='rgba(0,0,0,0)'))
+    # Free throw circle
+    shapes.append(dict(type='circle', xref='x', yref='y', x0=194, y0=130, x1=306, y1=250, line=dict(color=court_color)))
+    # Three point arc
+    shapes.append(dict(type='path', xref='x', yref='y', path='M 30 150 Q 250 445 450 150', line=dict(color=court_color)))
+    shapes.append(dict(type='line', xref='x', yref='y', x0=30, y0=150, x1=30, y1=0, line=dict(color=court_color)))
+    shapes.append(dict(type='line', xref='x', yref='y', x0=450, y0=150, x1=450, y1=0, line=dict(color=court_color)))
+
+    fig.update_layout(shapes=shapes)
+    return fig
+
+
+# -----------------------------
+# Initial scatter with court
+# -----------------------------
+scatter_fig = px.scatter(
+    df, x='left', y='top',
+    color='MadeLabel',
+    color_discrete_map={'Make':'green', 'Miss':'red'},
+    labels={'left':'X','top':'Y'},
+    title='Shot Chart',
+    range_x=[y_min, y_max],
+    range_y=[x_max, x_min],
+    height=800
+)
+scatter_fig.update_traces(marker=dict(size=12))
+scatter_fig = draw_court(scatter_fig)
+
+# Dash App
+app = dash.Dash(__name__)
+
+app.layout = html.Div([
+    html.H2("NBA Last Minute Shot Analysis"),
+    html.Div(style={'display':'flex'}, children=[
+        html.Div(dcc.Graph(id='scatter', figure=scatter_fig), style={'flex':'2', 'margin-right':'10px'}),
+        html.Div(dcc.Graph(id='sunburst', figure=fig_addon), style={'flex':'1'})
+    ])
+])
+
+# Callback to sync shot chart with sunburst click data
+@app.callback(
+    Output('scatter', 'figure'),
+    Input('sunburst', 'clickData')
+)
+def update_scatter(clickData):
+    dff = df.copy()
+   
+    sunburst_filters = {
+        0: {'qtr': q_all,  'distance_bin': None},
+        1: {'qtr': q_reg,  'distance_bin': None},
+        2: {'qtr': q_ot,   'distance_bin': None},
+        3: {'qtr': q_all,  'distance_bin': 'any'},
+        4: {'qtr': q_reg,  'distance_bin': 'any'},
+        5: {'qtr': q_ot,   'distance_bin': 'any'}
+    }
+
+    if clickData:
+        mode = clickData['points'][0]['curveNumber']
+        filters = sunburst_filters.get(mode, {})
+
+        # Check what sunburst trace was clicked
+        if 'qtr' in filters and filters['qtr'] is not None:
+            dff = dff[dff['qtr'].isin(filters['qtr'])]
+        # Apply distance filter if chosen
+        if 'distance_bin' in filters and filters['distance_bin'] == 'any':
+            dff = dff[dff['distance_bin'].notna()]
+
+        # Get hierarchy levels from clickData
+        hierarchy = clickData['points'][0]['id'].split('/')
+        if len(hierarchy) >= 1:
+            dff = dff[dff['Player'] == hierarchy[0]]
+        if len(hierarchy) >= 2:
+            second = hierarchy[1]
+            if second in df['qtr'].unique():
+                dff = dff[dff['qtr'] == second]
+            elif second in df['distance_bin'].unique():
+                dff = dff[dff['distance_bin'] == second]
+        if len(hierarchy) >= 3:
+            third = hierarchy[2]
+            if third in df['shot_type'].unique():
+                dff = dff[dff['shot_type'] == third]
+
+    fig = px.scatter(
+        dff, x='left', y='top', color='MadeLabel',
+        color_discrete_map={'Make':'green', 'Miss':'red'},
+        labels={'left':'X','top':'Y'},
+        title='Shot Chart',
+        range_x=[y_min, y_max],
+        range_y=[x_max, x_min]
+    )
+    fig.update_traces(marker=dict(size=12))
+    fig = draw_court(fig)
+    return fig
+
+if __name__ == "__main__":
+    app.run(debug=True)
