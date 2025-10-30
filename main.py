@@ -13,7 +13,7 @@ stephen = pd.read_csv('3_stephen_curry_shot_chart_2023.csv', low_memory=False)
 james   = pd.read_csv('2_james_harden_shot_chart_2023.csv', low_memory=False)
 lebron  = pd.read_csv('1_lebron_james_shot_chart_1_2023.csv', low_memory=False)
 
-# Add Player Names (keep your labels)
+# # Add Player Names (keep your labels)
 stephen['Player'] = 'Stephen_Curry'
 james['Player']   = 'James_Harden'
 lebron['Player']  = 'Lebron_James'
@@ -54,7 +54,7 @@ def fg_agg(group_cols, data):
     # drop rows missing any grouping key
     data2 = data.dropna(subset=[c for c in group_cols if c in data.columns]).copy()
     g = (
-        data2.groupby(group_cols, as_index=False, observed=True) # observed=True fixes categorical combos
+        data2.groupby(group_cols, as_index=False, observed=True)
             .agg(Attempts=('Made','count'),Made=('Made','sum'))
     )
     g['FG%'] = (g['Made'] / g['Attempts'] * 100).round(1)
@@ -132,7 +132,6 @@ Dist_reg = build(fg_dist_reg, ['Player','distance_bin','shot_type'], 'FG% — Di
 Dist_ot  = build(fg_dist_ot, ['Player','distance_bin','shot_type'], 'FG% — Distance (OT)')
 
 fig_addon = go.Figure(data=[att_all, att_reg, att_ot, Dist_all, Dist_reg, Dist_ot])
-
 for i, tr in enumerate(fig_addon.data):
     tr.visible = (i==0)
 
@@ -163,7 +162,7 @@ fig_addon.update_layout(
 x_min, x_max = df['top'].min(), df['top'].max()
 y_min, y_max = df['left'].min(), df['left'].max()
 
-# Function to draw an NBA half-court over shot chart
+# Function to draw an NBA half-court
 def draw_court(fig, court_color='black'):
     shapes = []
     # Hoop
@@ -182,10 +181,7 @@ def draw_court(fig, court_color='black'):
     fig.update_layout(shapes=shapes)
     return fig
 
-
-# -----------------------------
 # Initial scatter with court
-# -----------------------------
 scatter_fig = px.scatter(
     df, x='left', y='top',
     color='MadeLabel',
@@ -204,9 +200,15 @@ app = dash.Dash(__name__)
 
 app.layout = html.Div([
     html.H2("NBA Last Minute Shot Analysis"),
-    html.Div(style={'display':'flex'}, children=[
-        html.Div(dcc.Graph(id='scatter', figure=scatter_fig), style={'flex':'2', 'margin-right':'10px'}),
-        html.Div(dcc.Graph(id='sunburst', figure=fig_addon), style={'flex':'1'})
+    html.Div(style={'display': 'flex', 'width': '95%', 'margin': 'auto'}, children=[
+        html.Div(
+            dcc.Graph(id='scatter', figure=scatter_fig),
+            style={'flex': '1', 'margin-right': '10px', 'width': '70%'}  # smaller shot chart
+        ),
+        html.Div(
+            dcc.Graph(id='sunburst', figure=fig_addon),
+            style={'flex': '1', 'width': '30%'}
+        )
     ])
 ])
 
@@ -217,7 +219,6 @@ app.layout = html.Div([
 )
 def update_scatter(clickData):
     dff = df.copy()
-   
     sunburst_filters = {
         0: {'qtr': q_all,  'distance_bin': None},
         1: {'qtr': q_reg,  'distance_bin': None},
