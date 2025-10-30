@@ -203,7 +203,7 @@ app.layout = html.Div([
     html.Div(style={'display': 'flex', 'width': '95%', 'margin': 'auto'}, children=[
         html.Div(
             dcc.Graph(id='scatter', figure=scatter_fig),
-            style={'flex': '1', 'margin-right': '10px', 'width': '70%'}  # smaller shot chart
+            style={'flex': '1', 'margin-right': '10px', 'width': '70%'}
         ),
         html.Div(
             dcc.Graph(id='sunburst', figure=fig_addon),
