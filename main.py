@@ -62,12 +62,45 @@ def fg_agg(group_cols, data):
     return g
 
 
+# Clutch-time addon 
+CLUTCH_MINUTES = 5   # last N minutes of 4th quarter
+CLUTCH_MARGIN  = 5   # within N points
+
+# Parse "M:SS" -> seconds remaining in quarter
+def _parse_time_to_seconds(_s):
+    try:
+        m, s = str(_s).split(":")
+        return int(m) * 60 + int(s)
+    except Exception:
+        return np.nan
+
+# Add helper columns (safe if columns already exist)
+if 'time_remaining' in df.columns and 'sec_left' not in df.columns:
+    df['sec_left'] = df['time_remaining'].apply(_parse_time_to_seconds)
+
+# Score margin (abs team - opp). Adjust names if yours differ.
+if 'score_margin' not in df.columns:
+    if {'lebron_team_score','opponent_team_score'}.issubset(df.columns):
+        df['score_margin'] = (df['lebron_team_score'] - df['opponent_team_score']).abs()
+    elif {'team_score','opponent_team_score'}.issubset(df.columns):
+        df['score_margin'] = (df['team_score'] - df['opponent_team_score']).abs()
+    else:
+        df['score_margin'] = np.nan  # falls back to empty clutch set if scores missing
+
+# Filter: regulation clutch = 4th Qtr, last CLUTCH_MINUTES, margin ≤ CLUTCH_MARGIN
+df_clutch_reg = df[
+    (df['qtr'] == '4th Qtr') &
+    (df['sec_left'].le(CLUTCH_MINUTES * 60)) &
+    (df['score_margin'].le(CLUTCH_MARGIN))
+].copy()
+
+
 # Quarter filters (unchanged)
 q_all = ['1st Qtr','2nd Qtr','3rd Qtr','4th Qtr','1st OT','2nd OT']
 q_reg = ['1st Qtr','2nd Qtr','3rd Qtr','4th Qtr']
 q_ot  = ['1st OT','2nd OT']
 
-# Quarter views (ok to group directly)
+# Quarter views 
 fg_qtr_all = fg_agg(['Player','qtr','shot_type'], df[df['qtr'].isin(q_all)])
 fg_qtr_reg = fg_agg(['Player','qtr','shot_type'], df[df['qtr'].isin(q_reg)])
 fg_qtr_ot  = fg_agg(['Player','qtr','shot_type'], df[df['qtr'].isin(q_ot)])
@@ -81,12 +114,13 @@ fg_dist_all = fg_agg(['Player','distance_bin','shot_type'], df_dist_all)
 fg_dist_reg = fg_agg(['Player','distance_bin','shot_type'], df_dist_reg)
 fg_dist_ot  = fg_agg(['Player','distance_bin','shot_type'], df_dist_ot)
 
+# Clutch-time aggregations 
+fg_clutch_qtr  = fg_agg(['Player','shot_type'], df_clutch_reg)
+fg_clutch_dist = fg_agg(['Player','distance_bin','shot_type'],
+                        df_clutch_reg[df_clutch_reg['distance_bin'].notna()])
 
-# -------------------------------
-# Sunburst builder (simple)
 # - values = Attempts (size)
 # - color  = FG%       (hot/cold)
-# -------------------------------
 def build(data, path, title_suffix):
     if data.empty:
         # keep layout stable if a view is empty
@@ -122,7 +156,7 @@ def build(data, path, title_suffix):
     tr.textinfo = "label"
     return tr
     
-# Build traces (use your same dropdown structure)
+# Build traces
 att_all = build(fg_qtr_all, ['Player','qtr','shot_type'], 'FG% — All (Quarter)')
 att_reg = build(fg_qtr_reg, ['Player','qtr','shot_type'], 'FG% — Regulation (Quarter)')
 att_ot  = build(fg_qtr_ot,  ['Player','qtr','shot_type'], 'FG% — OT (Quarter)')
@@ -131,15 +165,27 @@ Dist_all = build(fg_dist_all, ['Player','distance_bin','shot_type'], 'FG% — Di
 Dist_reg = build(fg_dist_reg, ['Player','distance_bin','shot_type'], 'FG% — Distance (Reg)')
 Dist_ot  = build(fg_dist_ot,  ['Player','distance_bin','shot_type'], 'FG% — Distance (OT)')
 
+# Clutch-time traces
+Clutch_qtr  = build(fg_clutch_qtr,  ['Player','shot_type'],               'FG% — Clutch (Reg 4Q)')
+Clutch_dist = build(fg_clutch_dist, ['Player','distance_bin','shot_type'],'FG% — Clutch Distance (Reg 4Q)')
+
 fig_addon = go.Figure(data=[att_all, att_reg, att_ot, Dist_all, Dist_reg, Dist_ot])
 fig_addon.update_layout(coloraxis_colorscale='RdYlGn')  # 0% red → 100% green
 
+# Add clutch traces 
+fig_addon.add_traces([Clutch_qtr, Clutch_dist])
 
 for i, t in enumerate(fig_addon.data):
     t.visible = (i == 0)
 
 def visible(idx):
     v = [False]*6
+    v[idx] = True
+    return v
+
+# Helper that works with the expanded number of traces
+def _visible(idx, n=len(fig_addon.data)):
+    v = [False]*n
     v[idx] = True
     return v
 
@@ -188,6 +234,26 @@ fig_addon.update_layout(
     ),
     showlegend=False
 )
+
+# Append clutch buttons to the existing dropdown 
+_buttons = list(fig_addon.layout.updatemenus[0].buttons)
+_buttons += [
+    go.layout.updatemenu.Button(
+        label=f"FG% — Clutch (Reg 4Q, last {CLUTCH_MINUTES}:00)",
+        method="update",
+        args=[{"visible": _visible(6, len(fig_addon.data))},
+              {"title": {"text": f"FG% (color) & Attempts (size) — Clutch (Reg 4Q, last {CLUTCH_MINUTES}:00)",
+                         "x": 0.5, "xanchor": "center"}}]
+    ),
+    go.layout.updatemenu.Button(
+        label=f"FG% — Clutch Distance (Reg 4Q, last {CLUTCH_MINUTES}:00)",
+        method="update",
+        args=[{"visible": _visible(7, len(fig_addon.data))},
+              {"title": {"text": f"FG% (color) & Attempts (size) — Clutch Distance (Reg 4Q, last {CLUTCH_MINUTES}:00)",
+                         "x": 0.5, "xanchor": "center"}}]
+    ),
+]
+fig_addon.layout.updatemenus[0].buttons = tuple(_buttons)
 
 for tr in fig_addon.data:
     tr.update(domain=dict(y=[0.12, 1.0]))
